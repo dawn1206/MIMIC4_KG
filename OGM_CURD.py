@@ -1,5 +1,3 @@
-from connection import init_neo4j_graph
-from OGM import *
 from py2neo import Node, NodeMatcher
 from py2neo.matching import *
 
@@ -33,6 +31,7 @@ class patient_service():
                 if gender is not None:
                     patient['gender'] = gender
                 self.graph.push(patient)
+
             return patient
         except Exception as e:
             print(f"update patient failed: {e}")
@@ -42,29 +41,27 @@ class patient_service():
             patient = self.query_patient(subject_id)
             if patient:
                 self.graph.delete(patient)
+                return "success"
+            else:
+                return "delete wrong!!! patient not exist"
         except Exception as e:
             print(f"remove patient failed: {e}")
 
-class PrescriptionService:
+class prescription_service:
     def __init__(self, graph):
         self.graph = graph
         self.matcher = NodeMatcher(graph)
 
     def query_prescription(self, subject_id, hadm_id):
-        prescription = None
-        try:
-            prescription = self.matcher.match("Prescription", subject_id=subject_id).first()
-        except:
-            print("query prescription failed")
+        prescription = self.matcher.match("Prescription", subject_id=subject_id,hadm_id=hadm_id).first()
         return prescription
 
+
     def create_prescription(self, subject_id, hadm_id, starttime, stoptime, drug_type, drug, doses_per_24_hrs, form_val_disp, dose_unit_rx, dose_val_rx, form_unit_disp, route):
-        try:
-            prescription = Node("Prescription", subject_id=subject_id, hadm_id=hadm_id, starttime=starttime, stoptime=stoptime, drug_type=drug_type, drug=drug, doses_per_24_hrs=doses_per_24_hrs, form_val_disp=form_val_disp, dose_unit_rx=dose_unit_rx, dose_val_rx=dose_val_rx, form_unit_disp=form_unit_disp, route=route)
-            self.graph.create(prescription)
-            return prescription
-        except:
-            print("create prescription failed")
+        prescription = Node("Prescription", subject_id=subject_id, hadm_id=hadm_id, starttime=starttime, stoptime=stoptime, drug_type=drug_type, drug=drug, doses_per_24_hrs=doses_per_24_hrs, form_val_disp=form_val_disp, dose_unit_rx=dose_unit_rx, dose_val_rx=dose_val_rx, form_unit_disp=form_unit_disp, route=route)
+        self.graph.create(prescription)
+        return prescription
+
 
 
     def update_prescription(self, subject_id, hadm_id, starttime=None, stoptime=None, drug_type=None, drug=None, doses_per_24_hrs=None, form_val_disp=None, dose_unit_rx=None, dose_val_rx=None, form_unit_disp=None, route=None):
@@ -97,6 +94,9 @@ class PrescriptionService:
                 self.graph.delete(prescription)
             except:
                 print("remove prescription failed")
+            return "success"
+        else:
+            return "delete wrong!!! pre not exist"
 class medication_service():
     def __init__(self, graph):
         self.graph = graph
@@ -142,7 +142,9 @@ class medication_service():
                 self.graph.delete(medication_node)
             except Exception as e:
                 print(f"Remove medication failed: {e}")
-        return None
+            return "success"
+        else:
+            return "delete wrong!!! med not exist"
 
 class diagnose_service:
     def __init__(self, graph):
@@ -176,6 +178,9 @@ class diagnose_service:
         diagnose_node = self.matcher.match("Diagnose", subject_id=subject_id, hadm_id=hadm_id).first()
         if diagnose_node:
             self.graph.delete(diagnose_node)
+            return "success"
+        else:
+            return "delete wrong!!! d not exist"
 
 
 class diagnoseDetail_service:
@@ -208,8 +213,11 @@ class diagnoseDetail_service:
         diagnoseDetail_node = self.matcher.match("DiagnoseDetail", icd_code=icd_code).first()
         if diagnoseDetail_node:
             self.graph.delete(diagnoseDetail_node)
+            return "delete success"
+        else:
+            return "delete wrong!!! dd not exist"
 
-class OmrService:
+class omr_service:
     def __init__(self, graph):
         self.graph = graph
         self.matcher = NodeMatcher(graph)
@@ -241,3 +249,6 @@ class OmrService:
         omr_node = self.matcher.match("Omr", subject_id=subject_id, seq_num=seq_num).first()
         if omr_node:
             self.graph.delete(omr_node)
+            return "delete success"
+        else:
+            return "delete wrong!!! omr not exist"
