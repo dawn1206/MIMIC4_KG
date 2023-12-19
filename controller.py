@@ -1,4 +1,5 @@
-from fastapi import FastAPI
+
+from fastapi import FastAPI,Request
 from fastapi.middleware.cors import CORSMiddleware
 from py2neo import Graph
 from OGM_CURD import *
@@ -28,7 +29,7 @@ class controller():
             "prescription":prescription_service,
             "medication":medication_service,
             "diagnose":diagnose_service,
-            "diagnose_detail":diagnoseDetail_service,
+            "diagnoseDetail":diagnoseDetail_service,
             "omr":omr_service
         }
         self.service_type = service_type
@@ -36,6 +37,8 @@ class controller():
 
     def query(self, **kwargs):
         method = getattr(self.service, "query_"+self.service_type, None)
+        if method is None:
+            return None
         ret = method(**kwargs)
         if ret:
             return ret
@@ -44,14 +47,21 @@ class controller():
 
     def create(self, **kwargs):
         method = getattr(self.service, "create_"+self.service_type, None)
+        print(method)
+        if method is None:
+            return None
         return method(**kwargs)
 
     def update(self, **kwargs):
         method = getattr(self.service, "update_"+self.service_type, None)
+        if method is None:
+            return None
         return method(**kwargs)
 
     def remove(self, **kwargs):
         method = getattr(self.service, "remove_"+self.service_type, None)
+        if method is None:
+            return None
         if method(**kwargs)=="success":
             return "success"
         else:
@@ -62,12 +72,37 @@ async def main():
     return {"message": "Hello World"}
 
 #query patient
-@app.get("/patient/query")
-async def query_patient(subject_id:str):
-    controller_instance = controller(db_driver, "patient")
-    patient = controller_instance.query(subject_id=subject_id)
-    if patient:
-        return patient
-    else:
-        return {"message":"no patient"}
+@app.get("/{service_type}/query")
+async def generic_query(service_type: str, request: Request):
+    # 获取查询参数作为字典
+    query_params = dict(request.query_params)
+    controller_instance = controller(db_driver, service_type)
+    response = controller_instance.query(**query_params)
+    return response
 
+#create patient
+@app.get("/{service_type}/create")
+async def generic_create(service_type: str, request: Request):
+    # 获取查询参数作为字典
+    query_params = dict(request.query_params)
+    controller_instance = controller(db_driver, service_type)
+    response = controller_instance.create(**query_params)
+    return response
+
+#update patient
+@app.get("/{service_type}/update")
+async def generic_update(service_type: str, request: Request):
+    # 获取查询参数作为字典
+    query_params = dict(request.query_params)
+    controller_instance = controller(db_driver, service_type)
+    response = controller_instance.update(**query_params)
+    return response
+
+#remove patient
+@app.get("/{service_type}/remove")
+async def generic_remove(service_type: str, request: Request):
+    # 获取查询参数作为字典
+    query_params = dict(request.query_params)
+    controller_instance = controller(db_driver, service_type)
+    response = controller_instance.remove(**query_params)
+    return response
