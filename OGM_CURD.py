@@ -262,3 +262,14 @@ class omr_service:
             return "delete success"
         else:
             return "delete wrong!!! omr not exist"
+
+class cypher_service():
+    def __init__(self, graph):
+        self.graph = graph
+
+    def query(self, cypher):
+        try:
+            return self.graph.run(cypher).data()
+        except Exception as e:
+            print(f"query failed: {e}")
+            return None
