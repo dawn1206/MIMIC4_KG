@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 from fastapi import FastAPI,Request
 from fastapi.middleware.cors import CORSMiddleware
+from graphdatascience import GraphDataScience
 from py2neo import Graph
 from OGM_CURD import *
 
@@ -23,6 +24,7 @@ PASSWORD = "xyt020122"
 
 # 数据库驱动实例
 db_driver = Graph("bolt://localhost:7687", auth=("neo4j", "xyt020122"))
+gds = GraphDataScience("bolt://localhost:7687", auth=("neo4j", "xyt020122"))
 class controller():
     def __init__(self, db_driver:Graph,service_type:str):
         self.service_list = {
@@ -270,29 +272,66 @@ async def run_query(request: Request):
             "omr":omr_list,
             "diagnose":diagnose_list} if response else None
 
-#诊断和药品的历史记录
+# 连接到Neo4j数据库
 @app.get("/query/med_diagnose")
 async def run_query(request: Request):
-    '''
-    诊断和药品的历史记录
-    :param request: icd_code,icd_version
-    :return: JSON
-    '''
-
-    # 获取查询参数作为字典,需要diagnose的icd_code,icd_version
-
+    # 获取查询参数
     query_params = dict(request.query_params)
     icd_version = int(query_params["icd_version"])
     icd_code = query_params["icd_code"]
+    # 检查子图是否存在
+    graph_exists = gds.graph.exists("subGraphofdia")
 
-    # 参数化查询
-    cypher_query = "MATCH (m:Medication)-[r]->(pp:Prescription)-[r2]->(d:Diagnose)-[r3]->(dd:DiagnoseDetail) \
-                   WHERE d.icd_version=$icd_version AND d.icd_code=$icd_code  \
-                   RETURN dd.long_title as diagnose,m as medication\
-                   limit 10"
-    response = db_driver.run(cypher_query,icd_version=icd_version,icd_code=icd_code).data()
-    medication_list = list()
-    for i in response:
-        medication_list.append(i["medication"])
-    return {"diagnose":response[0]["diagnose"],
-            "medication":medication_list} if response else None
+    if not graph_exists.any():
+        # 创建子图的Cypher查询
+        # 定义Cypher查询
+        cypher_query = """
+        MATCH (d:DiagnoseDetail)<-[:PRE_OF_DIA]-(p:Prescription), (m:Medication)-[:USED_IN]->(p)
+        WHERE d.icd_code = $icd_code AND d.icd_version = $icd_version
+        RETURN gds.graph.project(
+            $graph_name,
+            {
+                DiagnoseDetail: { label: 'DiagnoseDetail', properties: {} },
+                Prescription: { label: 'Prescription', properties: {} },
+                Medication: { label: 'Medication', properties: {} }
+            },
+            {
+                PRE_OF_DIA: { type: 'PRE_OF_DIA', orientation: 'UNDIRECTED' },
+                USED_IN: { type: 'USED_IN', orientation: 'UNDIRECTED' }
+            }
+        )
+        """
+
+        # 执行Cypher查询并创建子图
+        G, result = gds.graph.cypher.project(
+            cypher_query,
+            database="neo4j",
+            graph_name="subGraphofdia",
+            icd_code="00845",  # 示例: "00845"
+            icd_version=9,  # 示例: 9
+        )
+
+
+    if graph_exists.any():
+        print("subGraphofdia exists")
+
+        # 运行degree centrality算法
+        degree_centrality_query = """
+        CALL gds.degree.stream('subGraphofdia')
+        YIELD nodeId, score
+        WHERE 'Medication' IN labels(gds.util.asNode(nodeId))
+        RETURN gds.util.asNode(nodeId).drug AS medicationDrug, score
+        ORDER BY score DESC limit 20
+        """
+        results = gds.run_cypher(degree_centrality_query)
+        diag = db_driver.run("Match (d:DiagnoseDetail) Where d.icd_code=$icd_code and d.icd_version=$icd_version return d", icd_code=icd_code, icd_version=icd_version).data()
+        return [diag,results["medicationDrug"]]
+    else:
+        return None
+
+
+    # medication_list = list()
+    # for i in response:
+    #     medication_list.append(i["medication"])
+    # return {"diagnose":response[0]["diagnose"],
+    #         "medication":medication_list} if response else None
