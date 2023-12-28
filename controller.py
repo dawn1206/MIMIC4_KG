@@ -163,11 +163,10 @@ async def run_query(request: Request):
     query_params = dict(request.query_params)
     subject_id = int(query_params["subject_id"])
     chartdate = query_params["chartdate"]
-    print(chartdate)
-    print(type(chartdate))
+
     # 参数化查询
     cypher_query = "MATCH (p:Patient)-[r]->(o:Omr) \
-                    WHERE p.subject_id=$subject_id and o.chartdate=$chartdate\
+                    WHERE p.subject_id=$subject_id and o.chartdate=date($chartdate)\
                     RETURN p, r, o \
                     limit 10"
     response = db_driver.run(cypher_query, subject_id=subject_id,chartdate=chartdate).data()
@@ -256,7 +255,7 @@ async def run_query(request: Request):
     cypher_query = """
     MATCH (p:Patient)-[r]->(o:Omr),(p)-[r2]->(pp:Prescription)-[r3]->(d:Diagnose)-[r4]->(dd:DiagnoseDetail)
     WHERE p.subject_id=$subject_id 
-      AND o.chartdate >= $start_date AND o.chartdate <= $end_date 
+      AND o.chartdate >= date($start_date) AND o.chartdate <= date($end_date)
     RETURN p AS patient, pp AS prescription, o AS omr, dd.long_title 
     LIMIT 10
     """
@@ -276,45 +275,44 @@ async def run_query(request: Request):
 # 连接到Neo4j数据库
 @app.get("/query/med_diagnose")
 async def run_query(request: Request):
+    '''
+
+    :param request: icd_version,icd_code
+    :return: Json
+    '''
     # 获取查询参数
     query_params = dict(request.query_params)
     icd_version = int(query_params["icd_version"])
     icd_code = query_params["icd_code"]
     # 检查子图是否存在
     graph_exists = gds.graph.exists("subGraphofdia")
+    print(graph_exists[1])
+    if str(graph_exists[1]) == "False":
+        print("not exist")
 
-    if not graph_exists.any():
-        # 创建子图的Cypher查询
         # 定义Cypher查询
-        cypher_query = """
-        MATCH (d:DiagnoseDetail)<-[:PRE_OF_DIA]-(p:Prescription), (m:Medication)-[:USED_IN]->(p)
-        WHERE d.icd_code = $icd_code AND d.icd_version = $icd_version
-        RETURN gds.graph.project(
-            $graph_name,
-            {
-                DiagnoseDetail: { label: 'DiagnoseDetail', properties: {} },
-                Prescription: { label: 'Prescription', properties: {} },
-                Medication: { label: 'Medication', properties: {} }
-            },
-            {
-                PRE_OF_DIA: { type: 'PRE_OF_DIA', orientation: 'UNDIRECTED' },
-                USED_IN: { type: 'USED_IN', orientation: 'UNDIRECTED' }
-            }
-        )
-        """
+        cypher_query = "MATCH (d:DiagnoseDetail)<-[:PRE_OF_DIA]-(p:Prescription), (m:Medication)-[:USED_IN]->(p) " \
+                       "WHERE d.icd_code = $icd_code AND d.icd_version = $icd_version " \
+                       "RETURN gds.graph.project( " \
+                       "'subGraphofdia', " \
+                       "{ " \
+                       "DiagnoseDetail: { label: 'DiagnoseDetail', properties: {} }, " \
+                       "Prescription: { label: 'Prescription', properties: {} }, " \
+                       "Medication: { label: 'Medication', properties: {} } " \
+                       "}, " \
+                       "{ " \
+                       "PRE_OF_DIA: { type: 'PRE_OF_DIA', orientation: 'UNDIRECTED' }, " \
+                       "USED_IN: { type: 'USED_IN', orientation: 'UNDIRECTED' } " \
+                       "} " \
+                       ")"
 
         # 执行Cypher查询并创建子图
-        G, result = gds.graph.cypher.project(
+        gds.graph.cypher.project(
             cypher_query,
             database="neo4j",
-            graph_name="subGraphofdia",
-            icd_code="00845",  # 示例: "00845"
-            icd_version=9,  # 示例: 9
+            icd_code=icd_code,  # 示例: "00845"
+            icd_version=icd_version,  # 示例: 9
         )
-
-
-    if graph_exists.any():
-        print("subGraphofdia exists")
 
         # 运行degree centrality算法
         degree_centrality_query = """
@@ -328,11 +326,29 @@ async def run_query(request: Request):
         diag = db_driver.run("Match (d:DiagnoseDetail) Where d.icd_code=$icd_code and d.icd_version=$icd_version return d", icd_code=icd_code, icd_version=icd_version).data()
         return [diag,results["medicationDrug"]]
     else:
-        return None
+        print("subGraphofdia exists")
+
+        # 运行degree centrality算法
+        degree_centrality_query = """
+        CALL gds.degree.stream('subGraphofdia')
+        YIELD nodeId, score
+        WHERE 'Medication' IN labels(gds.util.asNode(nodeId))
+        RETURN gds.util.asNode(nodeId).drug AS medicationDrug, score
+        ORDER BY score DESC limit 20
+        """
+        results = gds.run_cypher(degree_centrality_query)
+        diag = db_driver.run("Match (d:DiagnoseDetail) Where d.icd_code=$icd_code and d.icd_version=$icd_version return d", icd_code=icd_code, icd_version=icd_version).data()
+        return [diag,results["medicationDrug"]]
+    return None
 
 
 @app.get("/analysis_omr")
 async def analysis_omr(request: Request):
+    '''
+
+    :param request: subject_id, chartdate
+    :return:
+    '''
     query_params = dict(request.query_params)
     subject_id = int(query_params["subject_id"])
     chartdate = query_params["chartdate"]
