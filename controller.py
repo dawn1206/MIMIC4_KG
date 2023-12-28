@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from graphdatascience import GraphDataScience
 from py2neo import Graph
 from OGM_CURD import *
-
+from bert_classifier import BertClassifier
 app = FastAPI()
 
 # 配置 CORS
@@ -23,8 +23,9 @@ USERNAME = "neo4j"
 PASSWORD = "xyt020122"
 
 # 数据库驱动实例
-db_driver = Graph("bolt://localhost:7687", auth=("neo4j", "xyt020122"))
-gds = GraphDataScience("bolt://localhost:7687", auth=("neo4j", "xyt020122"))
+db_driver = Graph(URI, auth=(USERNAME, PASSWORD))
+gds = GraphDataScience(URI,auth=(USERNAME, PASSWORD))
+BertClassifier = BertClassifier(r'C:\Users\12064\PycharmProjects\mimic\utils\results\best', r'C:\Users\12064\PycharmProjects\mimic\bert', r"C:\Users\12064\PycharmProjects\mimic\utils\label_encoder.pkl")
 class controller():
     def __init__(self, db_driver:Graph,service_type:str):
         self.service_list = {
@@ -330,6 +331,28 @@ async def run_query(request: Request):
         return None
 
 
+@app.get("/analysis_omr")
+async def analysis_omr(request: Request):
+    query_params = dict(request.query_params)
+    subject_id = int(query_params["subject_id"])
+    chartdate = query_params["chartdate"]
+
+    # 参数化查询
+    cypher_query = "MATCH (o:Omr) WHERE o.subject_id=$subject_id and o.chartdate=date($chartdate) RETURN o"
+    response = db_driver.run(cypher_query, subject_id=subject_id,chartdate=chartdate).data()
+
+    bert_input = ""
+    for i in response:
+        bert_input += i["o"]["result_name"] + " " + i["o"]["result_value"] + " "
+    out = BertClassifier.predict(bert_input)[0].split("_")
+    print(out)
+    output = {
+        "icd_code":out[0].strip("\""),
+        "icd_version":int(out[1])
+              }
+
+    return output
+    # BertClassifier.predict()
     # medication_list = list()
     # for i in response:
     #     medication_list.append(i["medication"])
